@@ -141,3 +141,12 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Rust / Tauri build outputs
+src-tauri/target/
+src-tauri/gen/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
