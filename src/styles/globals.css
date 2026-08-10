@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --color-widget-bg: rgb(20 20 28 / 0.72);
+  --color-widget-border: rgb(255 255 255 / 0.08);
+  --color-widget-text: rgb(255 255 255 / 0.95);
+  --color-widget-muted: rgb(255 255 255 / 0.55);
+  --color-accent: #7c6cf5;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
