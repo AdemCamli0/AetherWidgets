@@ -28,9 +28,11 @@ Thanks for your interest in contributing! 🎉
 ## Adding a New Widget
 
 1. Create a folder under `src/widgets/<your-widget>/`.
-2. Export a self-contained React component (see `src/widgets/clock/ClockWidget.tsx` for reference).
-3. Register the widget window in `src-tauri/tauri.conf.json` if it needs its own window.
-4. Document any new Tauri commands your widget requires.
+2. Export a self-contained React component (see `src/widgets/clock/ClockWidget.tsx` for reference). Wrap it in `WidgetContextMenu` and use `useWidgetDrag` for dragging.
+3. Render it in `src/App.tsx` for your window label.
+4. Register the widget in the `WIDGETS` list in `src-tauri/src/lib.rs` (label, title, default size) so `open_widget` can create its window.
+5. Add it to `AVAILABLE_WIDGETS` in `src/components/ControlPanel.tsx` and add its translations in `src/lib/i18n.ts` (all 7 languages).
+6. Document any new Tauri commands your widget requires.
 
 ## Code Style
 

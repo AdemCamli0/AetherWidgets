@@ -20,3 +20,36 @@ body,
   user-select: none;
   overflow: hidden;
 }
+
+/* Slim, subtle scrollbars for widget lists */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.12);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.22);
+}
+
+/* Consistent interactive element transitions */
+button {
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}

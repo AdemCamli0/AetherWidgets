@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AetherWidgets",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "dev.aetherwidgets.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,16 +12,17 @@
   "app": {
     "windows": [
       {
-        "label": "clock",
-        "title": "AetherWidgets — Clock",
-        "width": 320,
-        "height": 160,
+        "label": "main",
+        "title": "AetherWidgets",
+        "width": 360,
+        "height": 520,
         "resizable": false,
         "decorations": false,
         "transparent": true,
-        "alwaysOnTop": false,
-        "skipTaskbar": true,
-        "focusable": true
+        "alwaysOnTop": true,
+        "skipTaskbar": false,
+        "focusable": true,
+        "center": true
       }
     ],
     "security": {

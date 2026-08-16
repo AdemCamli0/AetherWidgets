@@ -1,7 +1,25 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { LanguageProvider } from "./lib/i18n";
 import "./styles/globals.css";
+
+// Surface runtime errors visibly instead of a blank white window.
+function showFatalError(message: string) {
+  const el = document.createElement("pre");
+  el.style.cssText =
+    "position:fixed;inset:0;background:#1a1a24;color:#ff6b6b;padding:12px;font:12px monospace;white-space:pre-wrap;z-index:99999;overflow:auto;";
+  el.textContent = `AetherWidgets error:\n${message}`;
+  document.body.appendChild(el);
+}
+
+window.addEventListener("error", (event) => {
+  showFatalError(`${event.message}\n${event.filename}:${String(event.lineno)}`);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  showFatalError(`Unhandled promise rejection:\n${String(event.reason)}`);
+});
 
 const rootElement = document.getElementById("root");
 
@@ -11,6 +29,8 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <LanguageProvider>
+      <App />
+    </LanguageProvider>
   </StrictMode>,
 );
