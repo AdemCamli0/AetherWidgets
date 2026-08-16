@@ -117,10 +117,18 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and op
 
 ## 🗺️ Roadmap
 
+### Done
+
 - [x] **v0.1** — Project scaffold, Clock widget, desktop embedding, system tray
 - [x] **v0.2** — Control Panel, 6 new widgets (Weather, System Monitor, Calendar, Notes, Pomodoro, Crypto), multi-language UI (7 languages), launch-at-startup, per-widget always-on-top pinning, resizable windows, tray "Bring Widgets to Front", new app icon
-- [ ] **v0.3** — Persistent widget positions/layout, stable desktop-layer embedding, full Win+D survival for unpinned widgets
-- [ ] **v1.0** — Theme system, snap-to-grid, multi-monitor, signed installer
+
+### Ideas we're considering (no fixed schedule or version promises)
+
+- [ ] Remember widget positions — widgets reopen where you left them
+- [ ] Remember window sizes
+- [ ] Dark / light theme
+- [ ] More widgets
+- [ ] Stability improvements and bug fixes (including known issues like Win+D survival)
 
 ## 📄 License
 

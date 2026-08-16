@@ -1,0 +1,13 @@
+# Enforce LF line endings on checkout for all text files.
+# GitHub Windows runners default to core.autocrlf=true, which converts
+# LF -> CRLF on checkout and breaks `prettier --check` (endOfLine: "lf").
+* text=auto eol=lf
+
+# Binary assets — never touch line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
