@@ -3,6 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useLanguage } from "@/lib/i18n";
 import { useAlwaysOnTop } from "@/lib/useAlwaysOnTop";
+import { useWidgetStyle } from "@/lib/widgetStylePrefs";
+import { WidgetSizeEditor } from "@/components/WidgetSizeEditor";
+import { WidgetStyleEditor } from "@/components/WidgetStyleEditor";
 
 interface WidgetContextMenuProps {
   children: ReactNode;
@@ -20,9 +23,12 @@ interface MenuState {
  */
 export function WidgetContextMenu({ children }: WidgetContextMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [showSizeEditor, setShowSizeEditor] = useState(false);
+  const [showStyleEditor, setShowStyleEditor] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { t } = useLanguage();
   const { pinned, togglePinned } = useAlwaysOnTop();
+  const { cssVars } = useWidgetStyle();
 
   const closeMenu = useCallback(() => {
     setMenu(null);
@@ -57,11 +63,17 @@ export function WidgetContextMenu({ children }: WidgetContextMenuProps) {
 
   const closeWidget = useCallback(() => {
     const label = getCurrentWindow().label;
-    void invoke("close_widget", { label });
+    void invoke("close_widget", { label }).catch((err: unknown) => {
+      console.error("Failed to close widget:", err);
+    });
   }, []);
 
   return (
-    <div className="group/widget relative h-full w-full" onContextMenu={onContextMenu}>
+    <div
+      className="group/widget relative h-full w-full"
+      style={cssVars}
+      onContextMenu={onContextMenu}
+    >
       {children}
       <button
         onClick={togglePinned}
@@ -71,7 +83,7 @@ export function WidgetContextMenu({ children }: WidgetContextMenuProps) {
         className={`absolute right-1.5 top-1.5 z-40 rounded-md px-1 py-0.5 text-xs backdrop-blur-sm transition-all ${
           pinned
             ? "bg-accent/25 text-accent opacity-100"
-            : "bg-black/25 text-widget-muted opacity-0 hover:bg-white/15 hover:text-widget-text group-hover/widget:opacity-100"
+            : "bg-widget-chip text-widget-muted opacity-0 hover:bg-widget-surface-hover hover:text-widget-text group-hover/widget:opacity-100"
         }`}
         title={pinned ? t("widgetContextMenu.unpin") : t("widgetContextMenu.pin")}
         aria-label={pinned ? t("widgetContextMenu.unpin") : t("widgetContextMenu.pin")}
@@ -90,15 +102,37 @@ export function WidgetContextMenu({ children }: WidgetContextMenuProps) {
               togglePinned();
               closeMenu();
             }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-text transition-colors hover:bg-white/10"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-text transition-colors hover:bg-widget-surface-hover"
           >
             <span aria-hidden>📌</span>
             {pinned ? t("widgetContextMenu.unpin") : t("widgetContextMenu.pin")}
           </button>
           <button
             role="menuitem"
+            onClick={() => {
+              setShowSizeEditor(true);
+              closeMenu();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-text transition-colors hover:bg-widget-surface-hover"
+          >
+            <span aria-hidden>↔</span>
+            {t("widgetContextMenu.resize")}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setShowStyleEditor(true);
+              closeMenu();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-text transition-colors hover:bg-widget-surface-hover"
+          >
+            <span aria-hidden>🎨</span>
+            {t("widgetContextMenu.style")}
+          </button>
+          <button
+            role="menuitem"
             onClick={closeWidget}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-text transition-colors hover:bg-white/10"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-text transition-colors hover:bg-widget-surface-hover"
           >
             <span aria-hidden>✕</span>
             {t("widgetContextMenu.closeWidget")}
@@ -106,12 +140,26 @@ export function WidgetContextMenu({ children }: WidgetContextMenuProps) {
           <button
             role="menuitem"
             onClick={closeMenu}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-muted transition-colors hover:bg-white/10"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-widget-muted transition-colors hover:bg-widget-surface-hover"
           >
             <span aria-hidden>↩</span>
             {t("widgetContextMenu.cancel")}
           </button>
         </div>
+      )}
+      {showSizeEditor && (
+        <WidgetSizeEditor
+          onClose={() => {
+            setShowSizeEditor(false);
+          }}
+        />
+      )}
+      {showStyleEditor && (
+        <WidgetStyleEditor
+          onClose={() => {
+            setShowStyleEditor(false);
+          }}
+        />
       )}
     </div>
   );

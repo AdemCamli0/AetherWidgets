@@ -20,10 +20,10 @@ function formatBytes(bytes: number): string {
   return gb.toFixed(1);
 }
 
-function formatUptime(seconds: number): string {
+function formatUptime(seconds: number, t: (path: string) => string): string {
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
-  return `${String(hours)}s ${String(mins)}dk`;
+  return `${String(hours)}${t("widgets.system.uptimeHours")} ${String(mins)}${t("widgets.system.uptimeMinutes")}`;
 }
 
 export function SystemMonitorWidget() {
@@ -57,7 +57,7 @@ export function SystemMonitorWidget() {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          className={`flex h-full w-full items-center justify-center rounded-2xl border border-widget-border bg-widget-bg p-4 shadow-2xl backdrop-blur-xl ${
+          className={`flex h-full w-full items-center justify-center rounded-(--aw-widget-radius) border border-widget-border bg-widget-bg p-4 shadow-2xl backdrop-blur-(--aw-widget-blur) ${
             isDragging ? "cursor-grabbing" : "cursor-grab"
           }`}
         >
@@ -83,7 +83,7 @@ export function SystemMonitorWidget() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`flex h-full w-full flex-col justify-center gap-3 rounded-2xl border border-widget-border bg-widget-bg p-4 shadow-2xl backdrop-blur-xl ${
+        className={`flex h-full w-full flex-col justify-center gap-3 rounded-(--aw-widget-radius) border border-widget-border bg-widget-bg p-4 shadow-2xl backdrop-blur-(--aw-widget-blur) ${
           isDragging ? "cursor-grabbing" : "cursor-grab"
         }`}
       >
@@ -97,7 +97,7 @@ export function SystemMonitorWidget() {
               )}
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-widget-track">
             <div
               className="h-full rounded-full bg-accent transition-all duration-500"
               style={{ width: `${String(cpuPercent)}%` }}
@@ -112,7 +112,7 @@ export function SystemMonitorWidget() {
               {formatBytes(stats.memory_used)}/{formatBytes(stats.memory_total)} GB
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-widget-track">
             <div
               className="h-full rounded-full bg-accent transition-all duration-500"
               style={{ width: `${String(memoryPercent)}%` }}
@@ -127,7 +127,7 @@ export function SystemMonitorWidget() {
               {formatBytes(stats.disk_used)}/{formatBytes(stats.disk_total)} GB
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-widget-track">
             <div
               className="h-full rounded-full bg-accent transition-all duration-500"
               style={{ width: `${String(diskPercent)}%` }}
@@ -137,7 +137,7 @@ export function SystemMonitorWidget() {
 
         <div className="flex items-center justify-between text-xs text-widget-muted">
           <span>
-            {t("widgets.system.uptime")} {formatUptime(stats.uptime)}
+            {t("widgets.system.uptime")} {formatUptime(stats.uptime, t)}
           </span>
           {stats.gpu_temp !== null && <span>🎮 GPU 🌡️ {Math.round(stats.gpu_temp)}°C</span>}
         </div>
@@ -147,7 +147,7 @@ export function SystemMonitorWidget() {
           onPointerDown={(e) => {
             e.stopPropagation();
           }}
-          className="mt-1 w-full rounded bg-white/10 px-2 py-1 text-xs text-widget-muted transition-colors hover:bg-white/20 hover:text-widget-text"
+          className="mt-1 w-full rounded bg-widget-surface-hover px-2 py-1 text-xs text-widget-muted transition-colors hover:bg-widget-surface-active hover:text-widget-text"
         >
           {t("widgets.system.taskManager")}
         </button>

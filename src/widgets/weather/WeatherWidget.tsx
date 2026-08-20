@@ -12,12 +12,19 @@ interface WeatherData {
   feelsLike: number;
   uvIndex: number;
   forecast: ForecastDay[];
+  hourly: HourlyPoint[];
 }
 
 interface ForecastDay {
   date: string;
   maxTemp: number;
   minTemp: number;
+  icon: string;
+}
+
+interface HourlyPoint {
+  label: string;
+  temperature: number;
   icon: string;
 }
 
@@ -34,6 +41,11 @@ interface OpenMeteoResponse {
     time: string[];
     temperature_2m_max: number[];
     temperature_2m_min: number[];
+    weather_code: number[];
+  };
+  hourly?: {
+    time: string[];
+    temperature_2m: number[];
     weather_code: number[];
   };
 }
@@ -139,7 +151,10 @@ function getCurrentPosition() {
 
     navigator.geolocation.getCurrentPosition(resolve, reject, {
       enableHighAccuracy: true,
-      timeout: 12_000,
+      // Keep this short: when geolocation is unavailable (e.g. WebView2
+      // without a permission handler) we want to fall back to IP geolocation
+      // quickly instead of making the user wait.
+      timeout: 6_000,
       maximumAge: 60_000,
     });
   });
@@ -172,7 +187,49 @@ async function reverseGeocode(
   };
 }
 
-async function getSystemCity(locale: string, fallbackName: string): Promise<City | null> {
+interface IpGeoResult {
+  success?: boolean;
+  latitude?: number;
+  longitude?: number;
+  city?: string;
+  country?: string;
+  region?: string;
+}
+
+/**
+ * Resolves the current city from the public IP address. Used as a fallback
+ * when the browser Geolocation API is unavailable or denied — WebView2 does
+ * not surface a permission prompt, so `navigator.geolocation` often fails
+ * even when Windows location access is granted.
+ */
+async function getIpCity(): Promise<City | null> {
+  try {
+    const response = await fetch("https://ipwho.is/");
+    if (!response.ok) return null;
+    const data = (await response.json()) as IpGeoResult;
+    if (data.success === false) return null;
+    if (typeof data.latitude !== "number" || typeof data.longitude !== "number") {
+      return null;
+    }
+    return {
+      name: data.city ?? "Unknown",
+      latitude: data.latitude,
+      longitude: data.longitude,
+      country: data.country ?? "",
+      admin1: data.region,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves the city to show weather for, trying in order:
+ *  1. Browser Geolocation API (most accurate, when permitted).
+ *  2. IP-based geolocation (works without any permission).
+ *  3. The static fallback city, so the widget never renders empty.
+ */
+async function getSystemCity(locale: string, fallbackName: string): Promise<City> {
   try {
     const position = await getCurrentPosition();
     const { latitude, longitude } = position.coords;
@@ -185,8 +242,13 @@ async function getSystemCity(locale: string, fallbackName: string): Promise<City
       country: "",
     };
   } catch {
-    return null;
+    // Geolocation unavailable or denied — fall through to the IP lookup.
   }
+
+  const ipCity = await getIpCity();
+  if (ipCity) return ipCity;
+
+  return FALLBACK_CITY;
 }
 
 export function WeatherWidget() {
@@ -218,65 +280,23 @@ export function WeatherWidget() {
       setLocationStatus(interactive ? "requesting" : "idle");
       setLocationError(null);
 
+      // getSystemCity never fails: it falls back to IP geolocation and then
+      // to the default city, so the widget always has a location to show.
       const city = await getSystemCity(locale, t("widgets.weather.currentLocation"));
-      if (city) {
-        setSystemLocation(city);
-        setLocationMode("system");
-        setLocationStatus("idle");
-      } else {
-        setSystemLocation(null);
-        setLocationStatus(interactive ? "blocked" : "unavailable");
-        setLocationError(t("widgets.weather.locationPermissionNeeded"));
-      }
-
+      setSystemLocation(city);
+      setLocationMode("system");
+      setLocationStatus("idle");
       setResolvingLocation(false);
     },
     [locale, t],
   );
 
+  // Resolve the location on mount. The fallback chain (geolocation → IP →
+  // default city) guarantees a result, so the widget never stays empty even
+  // when WebView2 cannot provide browser geolocation.
   useEffect(() => {
-    let cancelled = false;
-
-    const initializeLocation = async () => {
-      if (!("geolocation" in navigator)) {
-        setResolvingLocation(false);
-        setLocationStatus("unavailable");
-        setLocationError(t("widgets.weather.locationPermissionNeeded"));
-        return;
-      }
-
-      if (!("permissions" in navigator)) {
-        setResolvingLocation(false);
-        return;
-      }
-
-      try {
-        const permission = await navigator.permissions.query({
-          name: "geolocation",
-        });
-
-        if (cancelled) return;
-
-        if (permission.state === "granted") {
-          void resolveSystemLocation(false);
-          return;
-        }
-
-        setResolvingLocation(false);
-        if (permission.state === "denied") {
-          setLocationStatus("blocked");
-          setLocationError(t("widgets.weather.locationPermissionNeeded"));
-        }
-      } catch {
-        setResolvingLocation(false);
-      }
-    };
-
-    void initializeLocation();
-    return () => {
-      cancelled = true;
-    };
-  }, [resolveSystemLocation, t]);
+    void resolveSystemLocation(false);
+  }, [resolveSystemLocation]);
 
   const requestSystemLocation = () => {
     setShowSearch(false);
@@ -297,13 +317,23 @@ export function WeatherWidget() {
     const resolvedLocation = weatherLocation;
 
     let cancelled = false;
+    // Abort any in-flight request so a hung network call cannot leave the
+    // widget stuck in its loading state forever.
+    let abortController: AbortController | null = null;
 
     async function fetchWeather() {
       setLoading(true);
+      abortController?.abort();
+      const controller = new AbortController();
+      abortController = controller;
+      const timeoutId = window.setTimeout(() => {
+        controller.abort();
+      }, 15_000);
 
       try {
         const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${String(resolvedLocation.latitude)}&longitude=${String(resolvedLocation.longitude)}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,apparent_temperature,uv_index&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto&forecast_days=7`,
+          `https://api.open-meteo.com/v1/forecast?latitude=${String(resolvedLocation.latitude)}&longitude=${String(resolvedLocation.longitude)}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,apparent_temperature,uv_index&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto&forecast_days=7`,
+          { signal: controller.signal },
         );
         if (!response.ok) throw new Error("Weather fetch failed");
 
@@ -318,6 +348,22 @@ export function WeatherWidget() {
           icon: weatherIcons[data.daily.weather_code[index]] ?? "❓",
         }));
 
+        // Next 24 hours, one point every 2 hours (12 points) starting from
+        // the current hour — compact enough to fit in two rows.
+        const hourly: HourlyPoint[] = [];
+        if (data.hourly) {
+          const fetchTime = new Date();
+          const nowIndex = data.hourly.time.findIndex((time) => new Date(time) >= fetchTime);
+          const startIndex = nowIndex >= 0 ? nowIndex : 0;
+          for (let i = startIndex; i < Math.min(startIndex + 24, data.hourly.time.length); i += 2) {
+            hourly.push({
+              label: new Date(data.hourly.time[i]).toLocaleTimeString(locale, { hour: "numeric" }),
+              temperature: Math.round(data.hourly.temperature_2m[i]),
+              icon: weatherIcons[data.hourly.weather_code[i]] ?? "❓",
+            });
+          }
+        }
+
         if (cancelled) return;
 
         setWeather({
@@ -329,14 +375,19 @@ export function WeatherWidget() {
           feelsLike: Math.round(current.apparent_temperature),
           uvIndex: Math.round(current.uv_index),
           forecast,
+          hourly,
         });
         setError(null);
       } catch {
-        if (!cancelled) {
+        // Only the latest fetch may update the UI: a superseded fetch's
+        // abort must not clobber the newer request's state, but a genuine
+        // failure (including the 15 s timeout) still surfaces an error.
+        if (!cancelled && abortController === controller) {
           setError(t("widgets.weather.error"));
         }
       } finally {
-        if (!cancelled) {
+        window.clearTimeout(timeoutId);
+        if (!cancelled && abortController === controller) {
           setLoading(false);
         }
       }
@@ -352,6 +403,7 @@ export function WeatherWidget() {
 
     return () => {
       cancelled = true;
+      abortController?.abort();
       window.clearInterval(interval);
     };
   }, [customLocation, locationMode, locale, systemLocation, t, weatherDescriptions]);
@@ -436,7 +488,7 @@ export function WeatherWidget() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`flex h-full w-full flex-col gap-3 rounded-2xl border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-xl ${
+        className={`flex h-full w-full flex-col gap-3 rounded-(--aw-widget-radius) border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-(--aw-widget-blur) ${
           isDragging ? "cursor-grabbing" : "cursor-grab"
         }`}
       >
@@ -455,7 +507,7 @@ export function WeatherWidget() {
           </button>
           <div className="flex items-center gap-1.5">
             {locationMode === "custom" && (
-              <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-widget-muted">
+              <span className="rounded-full bg-widget-surface px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-widget-muted">
                 Custom
               </span>
             )}
@@ -465,7 +517,7 @@ export function WeatherWidget() {
               onPointerDown={(e) => {
                 e.stopPropagation();
               }}
-              className={`rounded-md p-1 text-sm transition-colors hover:bg-white/10 hover:text-widget-text ${
+              className={`rounded-md p-1 text-sm transition-colors hover:bg-widget-surface-hover hover:text-widget-text ${
                 locationMode === "system" ? "text-accent" : "text-widget-muted"
               }`}
               title={t("widgets.weather.useSystemLocation")}
@@ -487,13 +539,13 @@ export function WeatherWidget() {
                 }}
                 placeholder={t("widgets.weather.searchPlaceholder")}
                 autoComplete="off"
-                className="w-full rounded bg-white/5 px-2 py-1 text-xs text-widget-text placeholder:text-widget-muted/50 focus:outline-none"
+                className="w-full rounded bg-widget-surface px-2 py-1 text-xs text-widget-text placeholder:text-widget-muted/50 focus:outline-none"
                 onPointerDown={(e) => {
                   e.stopPropagation();
                 }}
               />
             </div>
-            <div className="max-h-36 overflow-y-auto border-t border-white/5">
+            <div className="max-h-36 overflow-y-auto border-t border-widget-border">
               {searchLoading ? (
                 <div className="px-3 py-2 text-xs text-widget-muted">
                   {t("widgets.weather.loading")}
@@ -508,7 +560,7 @@ export function WeatherWidget() {
                     onPointerDown={(e) => {
                       e.stopPropagation();
                     }}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs text-widget-text transition-colors hover:bg-white/10"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs text-widget-text transition-colors hover:bg-widget-surface-hover"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-medium">{result.name}</div>
@@ -531,9 +583,9 @@ export function WeatherWidget() {
           </div>
         )}
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           {showLocationPrompt ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl bg-white/5 px-4 py-5 text-center">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl bg-widget-surface px-4 py-5 text-center">
               <div className="text-3xl">🧭</div>
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-widget-text">
@@ -543,22 +595,22 @@ export function WeatherWidget() {
               </div>
               <button
                 onClick={useSystemLocation}
-                className="rounded-lg bg-accent/20 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/30"
+                className="rounded-lg bg-accent/20 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/30 active:bg-accent/40"
               >
                 {locationActionLabel}
               </button>
             </div>
           ) : loading || resolvingLocation ? (
-            <div className="flex flex-1 items-center justify-center rounded-xl bg-white/5">
+            <div className="flex flex-1 items-center justify-center rounded-xl bg-widget-surface">
               <span className="text-widget-muted">{t("widgets.weather.loading")}</span>
             </div>
           ) : error ? (
-            <div className="flex flex-1 items-center justify-center rounded-xl bg-white/5 px-4 text-center">
+            <div className="flex flex-1 items-center justify-center rounded-xl bg-widget-surface px-4 text-center">
               <span className="text-widget-muted">{error}</span>
             </div>
           ) : weather ? (
             <>
-              <div className="flex min-h-28 w-full items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-3">
+              <div className="flex min-h-28 w-full items-center justify-between gap-3 rounded-xl bg-widget-surface px-3 py-3">
                 <div className="flex items-center gap-3">
                   <span className="text-4xl">{weather.icon}</span>
                   <div className="flex flex-col">
@@ -581,7 +633,9 @@ export function WeatherWidget() {
                   <div
                     key={`${day.date}-${String(index)}`}
                     className={`flex min-h-0 flex-col items-center justify-around gap-0.5 rounded-lg px-1 py-1 text-[12px] ring-1 ${
-                      index === 0 ? "bg-accent/15 ring-accent/30" : "bg-white/4 ring-transparent"
+                      index === 0
+                        ? "bg-accent/15 ring-accent/30"
+                        : "bg-widget-inset ring-transparent"
                     }`}
                   >
                     <span className="font-medium text-widget-muted">{day.date}</span>
@@ -592,9 +646,31 @@ export function WeatherWidget() {
                   </div>
                 ))}
               </div>
+
+              {weather.hourly.length > 0 && (
+                <div className="flex-none border-t border-widget-border pt-2">
+                  <div className="mb-1 px-1 text-[10px] font-medium text-widget-muted">
+                    {t("widgets.weather.hourly")}
+                  </div>
+                  <div className="grid grid-cols-6 gap-1 pb-1">
+                    {weather.hourly.map((point, index) => (
+                      <div
+                        key={`${point.label}-${String(index)}`}
+                        className="flex flex-col items-center gap-0.5 rounded-lg bg-widget-inset px-1 py-1"
+                      >
+                        <span className="text-[9px] text-widget-muted">{point.label}</span>
+                        <span className="text-sm leading-none">{point.icon}</span>
+                        <span className="text-[11px] font-medium text-widget-text tabular-nums">
+                          {point.temperature}°
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center rounded-xl bg-white/5 px-4 text-center">
+            <div className="flex flex-1 items-center justify-center rounded-xl bg-widget-surface px-4 text-center">
               <span className="text-widget-muted">{t("widgets.weather.loading")}</span>
             </div>
           )}

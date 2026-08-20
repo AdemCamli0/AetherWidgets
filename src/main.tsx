@@ -2,6 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { LanguageProvider } from "./lib/i18n";
+import { ThemeProvider } from "./lib/theme";
+import { WidgetPrefsProvider } from "./lib/widgetPrefs";
+import { DisplayPrefsProvider } from "./lib/displayPrefs";
 import "./styles/globals.css";
 
 // Surface runtime errors visibly instead of a blank white window.
@@ -29,8 +32,14 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <LanguageProvider>
-      <App />
-    </LanguageProvider>
+    <ThemeProvider>
+      <WidgetPrefsProvider>
+        <DisplayPrefsProvider>
+          <LanguageProvider>
+            <App />
+          </LanguageProvider>
+        </DisplayPrefsProvider>
+      </WidgetPrefsProvider>
+    </ThemeProvider>
   </StrictMode>,
 );

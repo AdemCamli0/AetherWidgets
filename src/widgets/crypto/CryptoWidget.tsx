@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useWidgetDrag } from "@/lib/useWidgetDrag";
 import { WidgetContextMenu } from "@/components/WidgetContextMenu";
 import { useLanguage } from "@/lib/i18n";
+import { notify } from "@/lib/notify";
+import { unlockAudio } from "@/lib/sound";
 
 interface CryptoCoin {
   id: string;
@@ -27,6 +29,13 @@ interface Holding {
   buyPrice: number;
 }
 
+interface PriceAlert {
+  /** Notify when the price crosses above this value. */
+  above?: number;
+  /** Notify when the price crosses below this value. */
+  below?: number;
+}
+
 type Exchange = "coingecko" | "binance" | "coinbase";
 
 const EXCHANGES: { id: Exchange; label: string }[] = [
@@ -45,6 +54,8 @@ interface WidgetConfig {
   coins: Partial<Record<Exchange, string[]>>;
   /** Per-exchange portfolios: portfolios[exchange][coinId] = holding. */
   portfolios: Partial<Record<Exchange, Partial<Record<string, Holding>>>>;
+  /** Per-exchange price alerts: alerts[exchange][coinId] = alert. */
+  alerts: Partial<Record<Exchange, Partial<Record<string, PriceAlert>>>>;
 }
 
 function loadConfig(): WidgetConfig {
@@ -58,12 +69,13 @@ function loadConfig(): WidgetConfig {
           : "coingecko",
         coins: parsed.coins ?? {},
         portfolios: parsed.portfolios ?? {},
+        alerts: parsed.alerts ?? {},
       };
     }
   } catch {
     // corrupted storage — fall through to defaults
   }
-  return { exchange: "coingecko", coins: {}, portfolios: {} };
+  return { exchange: "coingecko", coins: {}, portfolios: {}, alerts: {} };
 }
 
 /** Renders a mini sparkline chart as an SVG polyline. */
@@ -244,10 +256,146 @@ export function CryptoWidget() {
     });
   }, []);
 
+  const setAlert = useCallback((id: string, field: keyof PriceAlert, raw: string) => {
+    const value = parseFloat(raw);
+    setConfig((cfg) => {
+      const exchangeAlerts = cfg.alerts[cfg.exchange] ?? {};
+      const current = exchangeAlerts[id] ?? {};
+      const next = { ...current };
+      if (Number.isNaN(value) || value <= 0) {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+        delete next[field];
+      } else {
+        next[field] = value;
+      }
+      const updated: Partial<Record<string, PriceAlert>> = { ...exchangeAlerts };
+      // Drop the entry entirely once both thresholds are cleared.
+      if (next.above === undefined && next.below === undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+        delete updated[id];
+      } else {
+        updated[id] = next;
+      }
+      return { ...cfg, alerts: { ...cfg.alerts, [cfg.exchange]: updated } };
+    });
+  }, []);
+
+  // Removes a single alert threshold after it has fired so price alerts are
+  // one-shot: they notify once, then clear themselves. If that empties the
+  // coin's alert entirely, the entry is dropped.
+  const clearAlertField = useCallback(
+    (exchange: Exchange, coinId: string, field: keyof PriceAlert) => {
+      setConfig((cfg) => {
+        const exchangeAlerts = cfg.alerts[exchange] ?? {};
+        const current = exchangeAlerts[coinId];
+        if (!current) return cfg;
+        const next = { ...current };
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+        delete next[field];
+        const updated: Partial<Record<string, PriceAlert>> = { ...exchangeAlerts };
+        if (next.above === undefined && next.below === undefined) {
+          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+          delete updated[coinId];
+        } else {
+          updated[coinId] = next;
+        }
+        return { ...cfg, alerts: { ...cfg.alerts, [exchange]: updated } };
+      });
+    },
+    [],
+  );
+
+  // Price alerts: notify when a price enters an alert zone (above/below a
+  // threshold). Alerts are one-shot: they fire once when the condition first
+  // becomes true, then remove themselves from the config so they never ring
+  // again unless the user re-adds them. The "already met" state is keyed per
+  // exchange and preserved across exchange switches (validKeys spans every
+  // exchange's alerts), so switching exchanges never re-fires an
+  // already-notified alert. Evaluation only runs on price updates, reading the
+  // latest alert config from refs, so typing a threshold never fires a
+  // spurious alert mid-keystroke.
+  const alertsRef = useRef(config.alerts);
+  alertsRef.current = config.alerts;
+  const exchangeRef = useRef(config.exchange);
+  exchangeRef.current = config.exchange;
+  const alertMetRef = useRef<Map<string, boolean>>(new Map());
+  useEffect(() => {
+    const exchange = exchangeRef.current;
+    const alerts = alertsRef.current[exchange] ?? {};
+
+    // Build the set of valid keys across EVERY exchange so that switching
+    // exchanges doesn't wipe the "already notified" state of other exchanges
+    // (which used to re-fire alerts when switching back).
+    const validKeys = new Set<string>();
+    for (const { id: ex } of EXCHANGES) {
+      const exAlerts = alertsRef.current[ex];
+      if (!exAlerts) continue;
+      for (const coinId of Object.keys(exAlerts)) {
+        const alert = exAlerts[coinId];
+        if (!alert) continue;
+        if (alert.above !== undefined) validKeys.add(`${ex}:${coinId}:above`);
+        if (alert.below !== undefined) validKeys.add(`${ex}:${coinId}:below`);
+      }
+    }
+
+    for (const coin of coins) {
+      const alert = alerts[coin.id];
+      if (!alert) continue;
+      const symbol = coin.symbol.toUpperCase();
+      const price = coin.current_price;
+
+      if (alert.above !== undefined) {
+        const key = `${exchange}:${coin.id}:above`;
+        const met = price >= alert.above;
+        const wasMet = alertMetRef.current.get(key) ?? false;
+        if (met && !wasMet) {
+          void notify(
+            t("widgets.crypto.alertTitle").replace("{symbol}", symbol),
+            t("widgets.crypto.alertAboveBody")
+              .replace("{symbol}", symbol)
+              .replace("{price}", formatPrice(alert.above)),
+          );
+          // One-shot: clear the threshold now that it has fired.
+          clearAlertField(exchange, coin.id, "above");
+        }
+        alertMetRef.current.set(key, met);
+      }
+
+      if (alert.below !== undefined) {
+        const key = `${exchange}:${coin.id}:below`;
+        const met = price <= alert.below;
+        const wasMet = alertMetRef.current.get(key) ?? false;
+        if (met && !wasMet) {
+          void notify(
+            t("widgets.crypto.alertTitle").replace("{symbol}", symbol),
+            t("widgets.crypto.alertBelowBody")
+              .replace("{symbol}", symbol)
+              .replace("{price}", formatPrice(alert.below)),
+          );
+          // One-shot: clear the threshold now that it has fired.
+          clearAlertField(exchange, coin.id, "below");
+        }
+        alertMetRef.current.set(key, met);
+      }
+    }
+    // Drop state for alerts that no longer exist so re-adding them re-arms.
+    for (const key of Array.from(alertMetRef.current.keys())) {
+      if (!validKeys.has(key)) {
+        alertMetRef.current.delete(key);
+      }
+    }
+  }, [coins, t, clearAlertField]);
+
   // Holdings for the active exchange only.
   const holdings = useMemo(
     () => config.portfolios[config.exchange] ?? {},
     [config.portfolios, config.exchange],
+  );
+
+  // Alerts for the active exchange only.
+  const alerts = useMemo(
+    () => config.alerts[config.exchange] ?? {},
+    [config.alerts, config.exchange],
   );
 
   // Current price lookup by coin id (from the active exchange's feed).
@@ -296,7 +444,7 @@ export function CryptoWidget() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`flex h-full w-full flex-col rounded-2xl border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-xl ${
+        className={`flex h-full w-full flex-col rounded-(--aw-widget-radius) border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-(--aw-widget-blur) ${
           isDragging ? "cursor-grabbing" : "cursor-grab"
         }`}
       >
@@ -314,9 +462,10 @@ export function CryptoWidget() {
                 e.stopPropagation();
               }}
               onClick={() => {
+                unlockAudio();
                 setShowSettings((s) => !s);
               }}
-              className={`rounded-md px-2 py-1 text-sm transition-colors hover:bg-white/10 ${
+              className={`rounded-md px-2 py-1 text-sm transition-colors hover:bg-widget-surface-hover ${
                 showSettings ? "text-accent" : "text-widget-muted hover:text-widget-text"
               }`}
               title={t("widgets.crypto.settings")}
@@ -331,7 +480,7 @@ export function CryptoWidget() {
                 void fetchPrices(true);
               }}
               disabled={refreshing}
-              className="rounded-md px-2 py-1 text-xs text-widget-muted transition-colors hover:bg-white/10 hover:text-widget-text disabled:opacity-50"
+              className="rounded-md px-2 py-1 text-xs text-widget-muted transition-colors hover:bg-widget-surface-hover hover:text-widget-text disabled:opacity-50"
               title={t("widgets.crypto.refreshNow")}
             >
               {refreshing ? "…" : `↻ ${t("widgets.crypto.refreshNow")}`}
@@ -341,7 +490,7 @@ export function CryptoWidget() {
 
         {/* Exchange tabs: quick switch without opening settings (hidden while settings open) */}
         {!showSettings && (
-          <div className="mb-2 flex gap-1 rounded-lg bg-white/4 p-0.5">
+          <div className="mb-2 flex gap-1 rounded-lg bg-widget-inset p-0.5">
             {EXCHANGES.map((ex) => (
               <button
                 key={ex.id}
@@ -354,7 +503,7 @@ export function CryptoWidget() {
                 className={`flex-1 rounded-md px-1 py-1 text-[10px] font-medium transition-colors ${
                   config.exchange === ex.id
                     ? "bg-accent/25 text-accent"
-                    : "text-widget-muted hover:bg-white/10 hover:text-widget-text"
+                    : "text-widget-muted hover:bg-widget-surface-hover hover:text-widget-text"
                 }`}
               >
                 {ex.label}
@@ -383,7 +532,7 @@ export function CryptoWidget() {
                     className={`flex-1 rounded-md px-1 py-1 text-[10px] font-medium transition-colors ${
                       config.exchange === ex.id
                         ? "bg-accent/20 text-accent"
-                        : "bg-white/5 text-widget-muted hover:bg-white/10 hover:text-widget-text"
+                        : "bg-widget-surface text-widget-muted hover:bg-widget-surface-hover hover:text-widget-text"
                     }`}
                   >
                     {ex.label}
@@ -413,8 +562,8 @@ export function CryptoWidget() {
                         active
                           ? "bg-accent/20 text-accent"
                           : available
-                            ? "bg-white/5 text-widget-muted hover:bg-white/10 hover:text-widget-text"
-                            : "cursor-not-allowed bg-white/5 text-widget-muted/40"
+                            ? "bg-widget-surface text-widget-muted hover:bg-widget-surface-hover hover:text-widget-text"
+                            : "cursor-not-allowed bg-widget-surface text-widget-muted/40"
                       }`}
                       title={available ? coin.name : `${coin.name} — ${exchangeLabel}'de yok`}
                     >
@@ -425,13 +574,68 @@ export function CryptoWidget() {
                 })}
               </div>
             </div>
+            <div>
+              <div className="mb-1 text-[10px] font-medium text-widget-muted">
+                {t("widgets.crypto.alerts")}
+              </div>
+              <div className="flex flex-col gap-1">
+                {activeCoins.map((coinId) => {
+                  const catalogCoin = catalog.find((c) => c.id === coinId);
+                  const alert = alerts[coinId];
+                  return (
+                    <div
+                      key={coinId}
+                      className="flex items-center gap-1.5 rounded-md bg-widget-surface px-1.5 py-1"
+                    >
+                      <span className="w-10 shrink-0 text-[10px] font-medium text-widget-text">
+                        {catalogCoin?.symbol.toUpperCase() ?? coinId}
+                      </span>
+                      <span className="text-[9px] text-widget-muted">
+                        {t("widgets.crypto.alertAbove")}
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="$"
+                        value={alert?.above ?? ""}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onChange={(e) => {
+                          setAlert(coinId, "above", e.target.value);
+                        }}
+                        className="min-w-0 flex-1 rounded bg-widget-inset px-1.5 py-1 text-[10px] text-widget-text tabular-nums outline-none placeholder:text-widget-muted/50 focus:bg-widget-surface-hover"
+                      />
+                      <span className="text-[9px] text-widget-muted">
+                        {t("widgets.crypto.alertBelow")}
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="$"
+                        value={alert?.below ?? ""}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onChange={(e) => {
+                          setAlert(coinId, "below", e.target.value);
+                        }}
+                        className="min-w-0 flex-1 rounded bg-widget-inset px-1.5 py-1 text-[10px] text-widget-text tabular-nums outline-none placeholder:text-widget-muted/50 focus:bg-widget-surface-hover"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         ) : loading ? (
           <div className="flex flex-1 flex-col justify-center gap-2">
             {Array.from({ length: 6 }, (_, i) => (
               <div key={i} className="flex items-center justify-between">
-                <div className="h-3 w-16 animate-pulse rounded bg-white/10" />
-                <div className="h-3 w-20 animate-pulse rounded bg-white/10" />
+                <div className="h-3 w-16 animate-pulse rounded bg-widget-surface-hover" />
+                <div className="h-3 w-20 animate-pulse rounded bg-widget-surface-hover" />
               </div>
             ))}
           </div>
@@ -457,7 +661,7 @@ export function CryptoWidget() {
                 const hasBadges = coin.change_1h !== null || coin.change_7d !== null;
                 const hasSparkline = coin.sparkline.length >= 2;
                 return (
-                  <div key={coin.id} className="rounded-lg bg-white/3 px-1.5 py-1">
+                  <div key={coin.id} className="rounded-lg bg-widget-inset px-1.5 py-1">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 flex-col justify-center">
                         <div className="flex items-baseline gap-1.5">
@@ -492,7 +696,7 @@ export function CryptoWidget() {
                       </div>
                     </div>
                     {/* Portfolio row: Amount | Buy | P/L */}
-                    <div className="mt-1.5 flex items-stretch gap-1.5 border-t border-white/5 pt-1.5">
+                    <div className="mt-1.5 flex items-stretch gap-1.5 border-t border-widget-border pt-1.5">
                       <input
                         type="number"
                         min="0"
@@ -505,7 +709,7 @@ export function CryptoWidget() {
                         onChange={(e) => {
                           setHolding(coin.id, "amount", e.target.value);
                         }}
-                        className="min-w-0 flex-1 rounded bg-white/5 px-2 py-1.5 text-[11px] text-widget-text tabular-nums outline-none placeholder:text-widget-muted/50 focus:bg-white/10"
+                        className="min-w-0 flex-1 rounded bg-widget-surface px-2 py-1.5 text-[11px] text-widget-text tabular-nums outline-none placeholder:text-widget-muted/50 focus:bg-widget-surface-hover"
                         title={t("widgets.crypto.amount")}
                       />
                       <input
@@ -520,7 +724,7 @@ export function CryptoWidget() {
                         onChange={(e) => {
                           setHolding(coin.id, "buyPrice", e.target.value);
                         }}
-                        className="min-w-0 flex-1 rounded bg-white/5 px-2 py-1.5 text-[11px] text-widget-text tabular-nums outline-none placeholder:text-widget-muted/50 focus:bg-white/10"
+                        className="min-w-0 flex-1 rounded bg-widget-surface px-2 py-1.5 text-[11px] text-widget-text tabular-nums outline-none placeholder:text-widget-muted/50 focus:bg-widget-surface-hover"
                         title={t("widgets.crypto.buyPrice")}
                       />
                       <div
@@ -545,7 +749,7 @@ export function CryptoWidget() {
 
             {/* Portfolio summary: per-exchange P/L side by side + total */}
             {exchangePnl.size > 0 && (
-              <div className="mt-1.5 rounded-lg bg-white/5 px-2 py-1.5">
+              <div className="mt-1.5 rounded-lg bg-widget-surface px-2 py-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                     {EXCHANGES.filter((ex) => exchangePnl.has(ex.id)).map((ex) => {
@@ -565,7 +769,7 @@ export function CryptoWidget() {
                       );
                     })}
                   </div>
-                  <span className="flex items-baseline gap-1 border-l border-white/10 pl-2">
+                  <span className="flex items-baseline gap-1 border-l border-widget-border pl-2">
                     <span className="text-[9px] font-medium text-widget-muted">Toplam</span>
                     <span
                       className={`text-[11px] font-bold tabular-nums ${

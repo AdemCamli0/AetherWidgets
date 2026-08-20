@@ -1,12 +1,57 @@
 @import "tailwindcss";
 
-@theme {
+/*
+ * Theme palette. Dark is the default; setting data-theme="light" on the
+ * <html> element switches every widget to the light palette. The ThemeProvider
+ * (src/lib/theme.ts) keeps this attribute in sync across all windows.
+ */
+:root {
+  --aw-widget-bg-solid: 20 20 28;
+  --aw-widget-bg-alpha: 0.72;
+  --aw-widget-bg: rgb(var(--aw-widget-bg-solid) / var(--aw-widget-bg-alpha));
+  --aw-widget-border: rgb(255 255 255 / 0.08);
+  --aw-widget-text: rgb(255 255 255 / 0.95);
+  --aw-widget-muted: rgb(255 255 255 / 0.55);
+  --aw-surface: rgb(255 255 255 / 0.05);
+  --aw-surface-hover: rgb(255 255 255 / 0.1);
+  --aw-surface-active: rgb(255 255 255 / 0.2);
+  --aw-inset: rgb(255 255 255 / 0.035);
+  --aw-track: rgb(255 255 255 / 0.1);
+  --aw-chip: rgb(0 0 0 / 0.25);
+  --aw-accent: #7c6cf5;
+  --aw-widget-radius: 1rem;
+  --aw-widget-blur: 24px;
+}
+
+[data-theme="light"] {
+  --aw-widget-bg-solid: 248 249 252;
+  --aw-widget-bg-alpha: 0.88;
+  --aw-widget-bg: rgb(var(--aw-widget-bg-solid) / var(--aw-widget-bg-alpha));
+  --aw-widget-border: rgb(17 24 39 / 0.1);
+  --aw-widget-text: rgb(17 24 39 / 0.92);
+  --aw-widget-muted: rgb(17 24 39 / 0.55);
+  --aw-surface: rgb(17 24 39 / 0.05);
+  --aw-surface-hover: rgb(17 24 39 / 0.09);
+  --aw-surface-active: rgb(17 24 39 / 0.16);
+  --aw-inset: rgb(17 24 39 / 0.035);
+  --aw-track: rgb(17 24 39 / 0.1);
+  --aw-chip: rgb(17 24 39 / 0.08);
+  --aw-accent: #6553d6;
+}
+
+@theme inline {
   --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --color-widget-bg: rgb(20 20 28 / 0.72);
-  --color-widget-border: rgb(255 255 255 / 0.08);
-  --color-widget-text: rgb(255 255 255 / 0.95);
-  --color-widget-muted: rgb(255 255 255 / 0.55);
-  --color-accent: #7c6cf5;
+  --color-widget-bg: var(--aw-widget-bg);
+  --color-widget-border: var(--aw-widget-border);
+  --color-widget-text: var(--aw-widget-text);
+  --color-widget-muted: var(--aw-widget-muted);
+  --color-widget-surface: var(--aw-surface);
+  --color-widget-surface-hover: var(--aw-surface-hover);
+  --color-widget-surface-active: var(--aw-surface-active);
+  --color-widget-inset: var(--aw-inset);
+  --color-widget-track: var(--aw-track);
+  --color-widget-chip: var(--aw-chip);
+  --color-accent: var(--aw-accent);
 }
 
 html,
@@ -32,12 +77,12 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.12);
+  background: var(--aw-surface-hover);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 0.22);
+  background: var(--aw-surface-active);
 }
 
 /* Consistent interactive element transitions */
@@ -48,8 +93,17 @@ button {
     border-color 0.15s ease;
 }
 
+/* Respect the "no animations" display preference (reduced motion). */
+[data-animation="none"] *,
+[data-animation="none"] *::before,
+[data-animation="none"] *::after {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
 input:focus-visible,
 button:focus-visible {
-  outline: 1px solid var(--color-accent);
+  outline: 1px solid var(--aw-accent);
   outline-offset: 1px;
 }

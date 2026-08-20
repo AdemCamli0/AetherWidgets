@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ControlPanel } from "@/components/ControlPanel";
+import { InAppToast } from "@/components/InAppToast";
 import { ClockWidget } from "@/widgets/clock/ClockWidget";
 import { WeatherWidget } from "@/widgets/weather/WeatherWidget";
 import { SystemMonitorWidget } from "@/widgets/system/SystemMonitorWidget";
@@ -16,6 +17,7 @@ export default function App() {
     return (
       <main className="h-screen w-screen overflow-hidden bg-transparent">
         <ControlPanel />
+        <InAppToast />
       </main>
     );
   }
@@ -30,6 +32,7 @@ export default function App() {
       {windowLabel === "notes" && <NotesWidget />}
       {windowLabel === "pomodoro" && <PomodoroWidget />}
       {windowLabel === "crypto" && <CryptoWidget />}
+      <InAppToast />
     </main>
   );
 }

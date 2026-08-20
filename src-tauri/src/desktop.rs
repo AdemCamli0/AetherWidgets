@@ -2,9 +2,14 @@
 //! layer (behind icons, above wallpaper) while remaining interactive.
 //!
 //! Instead of reparenting into WorkerW (which breaks WebView2 input), we:
-//! 1. Mark the window as a no-activate tool window (no taskbar, no focus steal)
+//! 1. Mark the window as a tool window (no taskbar entry)
 //! 2. Pin it to the bottom of the z-order
-//! 3. Re-assert bottom position whenever the z-order changes
+//! 3. Re-assert the bottom position whenever the z-order changes — unless
+//!    the widget is pinned always-on-top, which always wins
+//! 4. Block and undo minimization so widgets survive Win+D / "Show desktop"
+//!
+//! All window style and subclass operations run on the main thread; running
+//! them from command worker threads caused white windows and UI freezes.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,10 +25,10 @@ use windows::Win32::{
     UI::WindowsAndMessaging::{
         CallWindowProcW, DefWindowProcW, GetForegroundWindow, GetWindowLongPtrW, IsIconic,
         IsWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, EVENT_SYSTEM_MINIMIZESTART,
-        GWL_EXSTYLE, GWL_STYLE, GWL_WNDPROC, HWND_BOTTOM, HWND_TOP, SC_MINIMIZE, SWP_NOACTIVATE,
-        SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WA_INACTIVE, WINDOWPOS,
-        WINEVENT_OUTOFCONTEXT, WM_ACTIVATE, WM_SIZE, WM_SYSCOMMAND, WM_WINDOWPOSCHANGING,
-        WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_MINIMIZEBOX,
+        GWL_EXSTYLE, GWL_STYLE, GWL_WNDPROC, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST,
+        SC_MINIMIZE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        SW_SHOWNOACTIVATE, WA_INACTIVE, WINDOWPOS, WINEVENT_OUTOFCONTEXT, WM_ACTIVATE, WM_SIZE,
+        WM_SYSCOMMAND, WM_WINDOWPOSCHANGING, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_MINIMIZEBOX,
     },
 };
 
@@ -49,28 +54,41 @@ pub struct WidgetPosition {
 
 /// Previous window procedures, stored per-widget for the subclass chain.
 /// Keyed by window handle (HWND as isize) to support multiple widgets.
+/// Each widget window has exactly ONE AetherWidgets subclass installed
+/// (`widget_wndproc`); the stored prev pointer is the original Tauri proc.
 #[cfg(windows)]
-#[allow(dead_code)]
 static PREV_WNDPROCS: Mutex<
     Option<HashMap<isize, windows::Win32::UI::WindowsAndMessaging::WNDPROC>>,
 > = Mutex::new(None);
 
-/// Subclass procedure that keeps the widget pinned to the bottom of the
-/// z-order whenever Windows tries to reorder it, and blocks minimization so
-/// the widget survives Win+D / "Show desktop".
-///
-/// NOTE: only installed by `embed_into_desktop`, which is currently disabled
-/// (white-window bug). Kept for the future safe re-enable on the main thread.
+/// The single AetherWidgets subclass installed on every widget window (the
+/// stored prev pointer is the original Tauri/WebView2 proc). It:
+/// - blocks minimization and immediately undoes it (Win+D / "Show desktop"),
+/// - keeps the window at the bottom of the z-order (desktop layer) whenever
+///   Windows tries to reorder it — unless the widget is pinned
+///   always-on-top, in which case the pin always wins,
+/// - auto-lowers raised widgets when focus moves to a non-widget window.
 #[cfg(windows)]
-#[allow(dead_code)]
 unsafe extern "system" fn widget_wndproc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    // Block minimization (Win+D / "Show desktop") so widgets stay visible.
+    // Block minimize requests so the widget stays visible.
     if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MINIMIZE as usize {
+        return LRESULT(0);
+    }
+
+    // Catch-all: Win+D / "Show desktop" (and any programmatic minimize)
+    // bypasses WM_SYSCOMMAND and instead delivers WM_SIZE with
+    // SIZE_MINIMIZED. Restore immediately so the widget survives regardless
+    // of how the minimize was triggered. SW_SHOWNOACTIVATE restores without
+    // stealing focus and does not force a z-order, so per-widget pinning is
+    // respected.
+    const SIZE_MINIMIZED: usize = 1;
+    if msg == WM_SIZE && wparam.0 == SIZE_MINIMIZED {
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         return LRESULT(0);
     }
 
@@ -90,14 +108,29 @@ unsafe extern "system" fn widget_wndproc(
         }
     }
 
+    // Keep the intended z-order:
+    // - an in-flight unpin (HWND_NOTOPMOST) drops the widget straight back
+    //   to the desktop layer,
+    // - while raised: top of the z-order,
+    // - pinned (always-on-top) widgets: untouched, the pin wins,
+    // - otherwise: bottom of the z-order (desktop layer).
     if msg == WM_WINDOWPOSCHANGING {
         let pos = &mut *(lparam.0 as *mut WINDOWPOS);
-        // Keep the pinned z-order: top while raised, bottom otherwise.
-        pos.hwndInsertAfter = if WIDGETS_RAISED.load(Ordering::SeqCst) {
-            HWND_TOP
-        } else {
-            HWND_BOTTOM
-        };
+        if pos.flags.0 & SWP_NOZORDER.0 == 0 {
+            if pos.hwndInsertAfter == HWND_NOTOPMOST {
+                // Unpinning in flight: drop straight back to the desktop layer.
+                pos.hwndInsertAfter = HWND_BOTTOM;
+            } else if pos.hwndInsertAfter == HWND_TOPMOST {
+                // Pinning in flight: let the always-on-top request through.
+            } else if WIDGETS_RAISED.load(Ordering::SeqCst) {
+                pos.hwndInsertAfter = HWND_TOP;
+            } else {
+                let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+                if ex_style & WS_EX_TOPMOST.0 == 0 {
+                    pos.hwndInsertAfter = HWND_BOTTOM;
+                }
+            }
+        }
     }
 
     let hwnd_key = hwnd.0 as isize;
@@ -112,72 +145,90 @@ unsafe extern "system" fn widget_wndproc(
     }
 }
 
-/// Pins the widget window to the desktop layer: bottom of z-order,
-/// no taskbar entry, no focus stealing. The window stays fully interactive.
+/// Pins a widget window to the desktop layer: tool-window style (no taskbar
+/// entry), immunity to Win+D minimization, the `widget_wndproc` subclass,
+/// and the bottom of the z-order. The window stays fully interactive.
 ///
-/// WARNING: currently unused — calling this from a command worker thread
-/// caused white windows and UI freezes. Must be re-run on the main thread.
+/// Takes the raw HWND (as `isize`) so it can be dispatched to the main
+/// thread — running these operations from a command worker thread caused
+/// white windows and UI freezes. Safe to call multiple times per window.
 #[cfg(windows)]
-#[allow(dead_code)]
-pub fn embed_into_desktop<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
-    let widget_hwnd = HWND(hwnd.0);
-    let hwnd_key = hwnd.0 as isize;
-
+pub fn embed_into_desktop_raw(hwnd_key: isize) {
+    let widget_hwnd = HWND(hwnd_key as *mut _);
     unsafe {
-        // 1. Extended styles: tool window (no taskbar) + layered (transparency).
+        if !IsWindow(Some(widget_hwnd)).as_bool() {
+            return;
+        }
+
+        // 1. Extended style: tool window (no taskbar entry).
         //    NOTE: WS_EX_NOACTIVATE is intentionally NOT set — it breaks
         //    WebView2 input handling (drag, click) for desktop widgets.
+        //    WS_EX_LAYERED is also NOT set — widget windows are opaque, and
+        //    layering can cause WebView2 repaint glitches.
         let ex_style = GetWindowLongPtrW(widget_hwnd, GWL_EXSTYLE) as u32;
-        SetWindowLongPtrW(
-            widget_hwnd,
-            GWL_EXSTYLE,
-            (ex_style | WS_EX_TOOLWINDOW.0 | WS_EX_LAYERED.0) as isize,
-        );
+        if ex_style & WS_EX_TOOLWINDOW.0 == 0 {
+            SetWindowLongPtrW(
+                widget_hwnd,
+                GWL_EXSTYLE,
+                (ex_style | WS_EX_TOOLWINDOW.0) as isize,
+            );
+        }
 
-        // 2. Pin to the bottom of the z-order (above wallpaper, below icons).
-        SetWindowPos(
-            widget_hwnd,
-            Some(HWND_BOTTOM),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        )
-        .map_err(|e| format!("SetWindowPos failed: {e}"))?;
+        // 2. Make the window "not minimizable" so Win+D / "Show desktop"
+        //    skips it entirely (see `remove_minimize_box_raw`).
+        remove_minimize_box_raw(hwnd_key);
 
-        // 3. Subclass the window to re-assert bottom z-order on changes.
-        //    Store the previous WNDPROC per-window to support multiple widgets.
-        let prev = SetWindowLongPtrW(
-            widget_hwnd,
-            GWL_WNDPROC,
-            widget_wndproc as *const () as isize,
-        );
-        if prev != 0 {
-            let mut map = PREV_WNDPROCS.lock().unwrap();
-            let map = map.get_or_insert_with(HashMap::new);
-            map.insert(
-                hwnd_key,
-                Some(std::mem::transmute::<
-                    isize,
-                    unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
-                >(prev)),
+        // 3. Subclass the window so it re-asserts its z-order and survives
+        //    minimization. Skipped if this window is already subclassed.
+        let already_subclassed = {
+            let map = PREV_WNDPROCS.lock().unwrap();
+            map.as_ref().is_some_and(|m| m.contains_key(&hwnd_key))
+        };
+        if !already_subclassed {
+            let prev = SetWindowLongPtrW(
+                widget_hwnd,
+                GWL_WNDPROC,
+                widget_wndproc as *const () as isize,
+            );
+            if prev != 0 {
+                let mut map = PREV_WNDPROCS.lock().unwrap();
+                let map = map.get_or_insert_with(HashMap::new);
+                map.insert(
+                    hwnd_key,
+                    Some(std::mem::transmute::<
+                        isize,
+                        unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
+                    >(prev)),
+                );
+            }
+        }
+
+        // 4. Pin to the bottom of the z-order (above wallpaper, below
+        //    icons). A widget pinned always-on-top keeps its position.
+        let ex_style = GetWindowLongPtrW(widget_hwnd, GWL_EXSTYLE) as u32;
+        if ex_style & WS_EX_TOPMOST.0 == 0 {
+            let _ = SetWindowPos(
+                widget_hwnd,
+                Some(HWND_BOTTOM),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
         }
     }
-
-    Ok(())
 }
 
 #[cfg(not(windows))]
-pub fn embed_into_desktop<R: Runtime>(_window: &WebviewWindow<R>) -> Result<(), String> {
-    Err("desktop embedding is only supported on Windows".to_string())
-}
+pub fn embed_into_desktop_raw(_hwnd_key: isize) {}
 
-/// Registers a widget window's HWND so the Win+D restore hook knows to keep
-/// it visible, and installs the minimize-guard subclass on the main thread so
-/// the widget survives Win+D / "Show desktop". Call after the window is created.
+/// Registers a widget window's HWND and embeds it into the desktop layer.
+///
+/// Embedding (tool-window style, Win+D immunity, the `widget_wndproc`
+/// subclass, bottom z-order) runs on the main thread — doing it from a
+/// command worker thread caused white windows / UI freezes. Call after the
+/// window is created.
 #[cfg(windows)]
 pub fn register_widget_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
     let hwnd = window.hwnd().map_err(|e| e.to_string())?;
@@ -189,13 +240,9 @@ pub fn register_widget_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<(),
         }
     }
 
-    // Make the window immune to Win+D (remove WS_MINIMIZEBOX) and install the
-    // minimize-guard subclass. Both must run on the main thread — doing them
-    // from a command worker thread caused white windows / UI freezes.
     let app = window.app_handle().clone();
     let _ = app.run_on_main_thread(move || {
-        remove_minimize_box_raw(key);
-        install_minimize_guard_raw(key);
+        embed_into_desktop_raw(key);
     });
 
     Ok(())
@@ -238,77 +285,6 @@ pub fn register_widget_hwnd<R: Runtime>(_window: &WebviewWindow<R>) -> Result<()
 
 #[cfg(not(windows))]
 pub fn unregister_widget_hwnd<R: Runtime>(_window: &WebviewWindow<R>) {}
-
-/// Minimal subclass that ONLY blocks minimization so widgets survive Win+D /
-/// "Show desktop". Unlike `widget_wndproc`, it does not touch the z-order, so
-/// it coexists with the per-widget always-on-top pinning.
-#[cfg(windows)]
-unsafe extern "system" fn minimize_guard_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    // Swallow minimize requests so the widget stays visible.
-    if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MINIMIZE as usize {
-        return LRESULT(0);
-    }
-
-    // Catch-all: Win+D / "Show desktop" (and any programmatic minimize)
-    // bypasses WM_SYSCOMMAND and instead delivers WM_SIZE with
-    // SIZE_MINIMIZED. Restore immediately so the widget survives regardless
-    // of how the minimize was triggered. SW_SHOWNOACTIVATE restores without
-    // stealing focus, and does not force a z-order so per-widget pinning is
-    // respected.
-    const SIZE_MINIMIZED: usize = 1;
-    if msg == WM_SIZE && wparam.0 == SIZE_MINIMIZED {
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        return LRESULT(0);
-    }
-
-    let hwnd_key = hwnd.0 as isize;
-    let prev = {
-        let map = PREV_WNDPROCS.lock().unwrap();
-        map.as_ref().and_then(|m| m.get(&hwnd_key).copied())
-    };
-
-    match prev {
-        Some(Some(prev_fn)) => CallWindowProcW(Some(prev_fn), hwnd, msg, wparam, lparam),
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-    }
-}
-
-/// Installs the minimize-guard subclass on a widget window. Takes the raw HWND
-/// (as `isize`) so it can be sent to the main thread. Must run on the main
-/// thread to avoid WebView2 issues.
-#[cfg(windows)]
-pub fn install_minimize_guard_raw(hwnd_key: isize) {
-    let widget_hwnd = HWND(hwnd_key as *mut _);
-    unsafe {
-        if !IsWindow(Some(widget_hwnd)).as_bool() {
-            return;
-        }
-        let prev = SetWindowLongPtrW(
-            widget_hwnd,
-            GWL_WNDPROC,
-            minimize_guard_proc as *const () as isize,
-        );
-        if prev != 0 {
-            let mut map = PREV_WNDPROCS.lock().unwrap();
-            let map = map.get_or_insert_with(HashMap::new);
-            map.insert(
-                hwnd_key,
-                Some(std::mem::transmute::<
-                    isize,
-                    unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
-                >(prev)),
-            );
-        }
-    }
-}
-
-#[cfg(not(windows))]
-pub fn install_minimize_guard_raw(_hwnd_key: isize) {}
 
 /// Removes the `WS_MINIMIZEBOX` style from a widget window so Windows treats
 /// it as "not minimizable". Per Microsoft docs (Raymond Chen, The Old New
@@ -472,11 +448,9 @@ pub fn raise_widgets_to_front() {
 pub fn raise_widgets_to_front() {}
 
 /// Returns widgets to their normal desktop-layer position (bottom of z-order).
-///
-/// NOTE: only invoked from `widget_wndproc` (auto-lower), which is dormant
-/// while desktop embedding is disabled. Kept for future re-enable.
+/// Invoked from `widget_wndproc` (auto-lower) when a raised widget loses
+/// focus to a non-widget window. Pinned (always-on-top) widgets are skipped.
 #[cfg(windows)]
-#[allow(dead_code)]
 pub fn lower_widgets_to_desktop() {
     WIDGETS_RAISED.store(false, Ordering::SeqCst);
 
@@ -489,6 +463,11 @@ pub fn lower_widgets_to_desktop() {
         let hwnd = HWND(key as *mut _);
         unsafe {
             if !IsWindow(Some(hwnd)).as_bool() {
+                continue;
+            }
+            // Pinned (always-on-top) widgets keep their position.
+            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            if ex_style & WS_EX_TOPMOST.0 != 0 {
                 continue;
             }
             let _ = SetWindowPos(
@@ -507,11 +486,19 @@ pub fn lower_widgets_to_desktop() {
 #[cfg(not(windows))]
 pub fn lower_widgets_to_desktop() {}
 
-/// Returns the widget window's current outer position.
+/// Returns the widget window's current outer position in logical pixels.
+///
+/// The drag code (`useWidgetDrag`) works in logical/CSS pixels end-to-end so
+/// dragging stays accurate on displays with non-100% scaling.
 #[tauri::command]
 pub fn get_widget_position<R: Runtime>(window: WebviewWindow<R>) -> Result<WidgetPosition, String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let pos = window.outer_position().map_err(|e| e.to_string())?;
-    Ok(WidgetPosition { x: pos.x, y: pos.y })
+    let logical = pos.to_logical::<i32>(scale);
+    Ok(WidgetPosition {
+        x: logical.x,
+        y: logical.y,
+    })
 }
 
 /// Exits the application gracefully: hides all windows first, then exits.

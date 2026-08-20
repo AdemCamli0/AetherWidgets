@@ -2,52 +2,119 @@ import { useEffect, useMemo, useState } from "react";
 import { WidgetContextMenu } from "@/components/WidgetContextMenu";
 import { useLanguage } from "@/lib/i18n";
 import { useWidgetDrag } from "@/lib/useWidgetDrag";
+import { notify } from "@/lib/notify";
+import { unlockAudio } from "@/lib/sound";
 
 type TimerMode = "work" | "shortBreak" | "longBreak" | "custom";
+
+const PREFS_KEY = "aetherwidgets-pomodoro-prefs";
+
+/** Preset work-session durations (minutes) the user can pick from. */
+const WORK_DURATION_OPTIONS = [15, 25, 50];
+
+interface PomodoroPrefs {
+  notifications: boolean;
+  autoNext: boolean;
+  workMinutes: number;
+}
+
+function readStoredPrefs(): PomodoroPrefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PomodoroPrefs>;
+      return {
+        notifications: parsed.notifications !== false,
+        autoNext: parsed.autoNext === true,
+        workMinutes: WORK_DURATION_OPTIONS.includes(parsed.workMinutes ?? 0)
+          ? (parsed.workMinutes as number)
+          : 25,
+      };
+    }
+  } catch {
+    // Ignore storage failures.
+  }
+  return { notifications: true, autoNext: false, workMinutes: 25 };
+}
 
 export function PomodoroWidget() {
   const { t } = useLanguage();
   const [mode, setMode] = useState<TimerMode>("work");
-  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
+  const [secondsLeft, setSecondsLeft] = useState(() => readStoredPrefs().workMinutes * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [completedSessions, setCompletedSessions] = useState(0);
   const [customMinutes, setCustomMinutes] = useState(10);
+  const [prefs, setPrefs] = useState<PomodoroPrefs>(readStoredPrefs);
   const { onPointerDown, onPointerMove, onPointerUp, isDragging } = useWidgetDrag();
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [prefs]);
 
   const MODES = useMemo<Record<TimerMode, { minutes: number; label: string }>>(
     () => ({
-      work: { minutes: 25, label: t("widgets.pomodoro.work") },
+      work: { minutes: prefs.workMinutes, label: t("widgets.pomodoro.work") },
       shortBreak: { minutes: 5, label: t("widgets.pomodoro.shortBreak") },
       longBreak: { minutes: 15, label: t("widgets.pomodoro.longBreak") },
       custom: { minutes: 10, label: t("widgets.pomodoro.custom") },
     }),
-    [t],
+    [prefs.workMinutes, t],
   );
 
   useEffect(() => {
     if (!isRunning) return;
 
     const interval = window.setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          setIsRunning(false);
-          if (mode === "work") {
-            setCompletedSessions((c) => c + 1);
-            const nextMode = (completedSessions + 1) % 4 === 0 ? "longBreak" : "shortBreak";
-            setMode(nextMode);
-            return MODES[nextMode].minutes * 60;
-          }
-          setMode("work");
-          return MODES.work.minutes * 60;
-        }
-        return prev - 1;
-      });
+      setSecondsLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [isRunning, mode, completedSessions, MODES]);
+  }, [isRunning]);
+
+  // Handle timer completion: send a notification, advance to the next mode
+  // and optionally auto-start the next session.
+  useEffect(() => {
+    if (!isRunning || secondsLeft > 0) return;
+
+    if (mode === "custom") {
+      setIsRunning(false);
+      if (prefs.notifications) {
+        void notify(t("widgets.pomodoro.timerDone"), t("widgets.pomodoro.timerDoneBody"));
+      }
+      setSecondsLeft(customMinutes * 60);
+      return;
+    }
+
+    if (mode === "work") {
+      const finishedSessions = completedSessions + 1;
+      setCompletedSessions(finishedSessions);
+      const nextMode: TimerMode = finishedSessions % 4 === 0 ? "longBreak" : "shortBreak";
+      if (prefs.notifications) {
+        void notify(t("widgets.pomodoro.workDone"), t("widgets.pomodoro.workDoneBody"));
+      }
+      setMode(nextMode);
+      setSecondsLeft(MODES[nextMode].minutes * 60);
+      if (!prefs.autoNext) {
+        setIsRunning(false);
+      }
+      return;
+    }
+
+    if (prefs.notifications) {
+      void notify(t("widgets.pomodoro.breakDone"), t("widgets.pomodoro.breakDoneBody"));
+    }
+    setMode("work");
+    setSecondsLeft(MODES.work.minutes * 60);
+    if (!prefs.autoNext) {
+      setIsRunning(false);
+    }
+  }, [isRunning, secondsLeft, mode, completedSessions, customMinutes, prefs, MODES, t]);
 
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;
@@ -55,6 +122,7 @@ export function PomodoroWidget() {
   const progress = 1 - secondsLeft / totalSeconds;
 
   const toggleTimer = () => {
+    unlockAudio();
     setIsRunning(!isRunning);
   };
 
@@ -76,7 +144,7 @@ export function PomodoroWidget() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`flex h-full w-full flex-col gap-2 overflow-hidden rounded-2xl border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-xl ${
+        className={`flex h-full w-full flex-col gap-1 overflow-hidden rounded-(--aw-widget-radius) border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-(--aw-widget-blur) ${
           isDragging ? "cursor-grabbing" : "cursor-grab"
         }`}
       >
@@ -89,7 +157,7 @@ export function PomodoroWidget() {
           </span>
         </div>
 
-        <div className="flex flex-none flex-col items-center gap-3 pt-1">
+        <div className="flex flex-none flex-col items-center gap-2 pt-0.5">
           <div className="relative">
             <svg className="h-24 w-24 -rotate-90" viewBox="0 0 100 100">
               <circle
@@ -99,7 +167,7 @@ export function PomodoroWidget() {
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="6"
-                className="text-white/10"
+                className="text-widget-track"
               />
               <circle
                 cx="50"
@@ -121,13 +189,13 @@ export function PomodoroWidget() {
             </div>
           </div>
 
-          <div className="mt-2 grid w-full grid-cols-2 gap-2">
+          <div className="mt-1 grid w-full grid-cols-2 gap-1.5">
             <button
               onClick={toggleTimer}
               onPointerDown={(e) => {
                 e.stopPropagation();
               }}
-              className="rounded-xl bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+              className="rounded-xl bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 active:bg-accent/70"
             >
               {isRunning ? t("widgets.pomodoro.pause") : t("widgets.pomodoro.start")}
             </button>
@@ -136,35 +204,36 @@ export function PomodoroWidget() {
               onPointerDown={(e) => {
                 e.stopPropagation();
               }}
-              className="rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-widget-text transition-colors hover:bg-white/20"
+              className="rounded-xl bg-widget-surface-hover px-3 py-2 text-sm font-medium text-widget-text transition-colors hover:bg-widget-surface-active"
             >
               {t("widgets.pomodoro.reset")}
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 pt-0.5">
+          <div className="flex items-center gap-1 pt-0.5">
             {Array.from({ length: 4 }, (_, index) => (
               <div
                 key={index}
                 className={`h-1.5 w-1.5 rounded-full ${
-                  index < completedSessions % 4 ? "bg-accent" : "bg-white/20"
+                  index < completedSessions % 4 ? "bg-accent" : "bg-widget-surface-active"
                 }`}
               />
             ))}
           </div>
 
-          <div className="flex items-center gap-2 pt-0.5 text-[11px] text-widget-muted">
+          <div className="flex items-center gap-1 pt-0.5 text-[10px] text-widget-muted">
             <span>
               {t("widgets.pomodoro.total")}: {completedSessions} {t("widgets.pomodoro.sessions")}
             </span>
             <span>•</span>
             <span>
-              {Math.floor((completedSessions * 25) / 60)}h {(completedSessions * 25) % 60}m
+              {Math.floor((completedSessions * prefs.workMinutes) / 60)}h{" "}
+              {(completedSessions * prefs.workMinutes) % 60}m
             </span>
           </div>
         </div>
 
-        <div className="grid shrink-0 w-full grid-cols-2 gap-1.5 pt-1">
+        <div className="grid shrink-0 w-full grid-cols-2 gap-1 pt-0.5">
           {(["work", "shortBreak", "longBreak", "custom"] as const).map((item) => (
             <button
               key={item}
@@ -179,7 +248,7 @@ export function PomodoroWidget() {
               className={`rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
                 mode === item
                   ? "bg-accent text-white"
-                  : "bg-white/10 text-widget-muted hover:bg-white/20"
+                  : "bg-widget-surface-hover text-widget-muted hover:bg-widget-surface-active"
               }`}
             >
               {MODES[item].label}
@@ -187,8 +256,36 @@ export function PomodoroWidget() {
           ))}
         </div>
 
+        <div className="flex shrink-0 items-center justify-center gap-2 pt-0.5">
+          <span className="text-[10px] text-widget-muted">
+            {t("widgets.pomodoro.workDuration")}:
+          </span>
+          {WORK_DURATION_OPTIONS.map((mins) => (
+            <button
+              key={mins}
+              onClick={() => {
+                setPrefs((p) => ({ ...p, workMinutes: mins }));
+                if (mode === "work") {
+                  setSecondsLeft(mins * 60);
+                  setIsRunning(false);
+                }
+              }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              className={`rounded-md px-2 py-0.5 text-[10px] transition-colors ${
+                prefs.workMinutes === mins
+                  ? "bg-accent text-white"
+                  : "bg-widget-surface-hover text-widget-muted hover:bg-widget-surface-active"
+              }`}
+            >
+              {mins}m
+            </button>
+          ))}
+        </div>
+
         {mode === "custom" && (
-          <div className="flex shrink-0 items-center justify-center gap-2 pt-1">
+          <div className="flex shrink-0 items-center justify-center gap-2 pt-0.5">
             <input
               type="number"
               min="1"
@@ -200,11 +297,42 @@ export function PomodoroWidget() {
               onPointerDown={(e) => {
                 e.stopPropagation();
               }}
-              className="w-20 rounded-lg bg-white/5 px-2 py-1.5 text-center text-xs text-widget-text focus:outline-none"
+              className="w-20 rounded-lg bg-widget-surface px-2 py-1.5 text-center text-xs text-widget-text focus:outline-none"
             />
             <span className="text-xs text-widget-muted">min</span>
           </div>
         )}
+
+        <div className="flex shrink-0 items-center justify-center gap-2 pt-0.5 text-[10px] text-widget-muted">
+          <label className="flex cursor-pointer items-center gap-1">
+            <input
+              type="checkbox"
+              checked={prefs.notifications}
+              onChange={(e) => {
+                setPrefs((p) => ({ ...p, notifications: e.target.checked }));
+              }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              className="h-3 w-3 accent-accent"
+            />
+            <span>{t("widgets.pomodoro.notifications")}</span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-1">
+            <input
+              type="checkbox"
+              checked={prefs.autoNext}
+              onChange={(e) => {
+                setPrefs((p) => ({ ...p, autoNext: e.target.checked }));
+              }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              className="h-3 w-3 accent-accent"
+            />
+            <span>{t("widgets.pomodoro.autoNext")}</span>
+          </label>
+        </div>
       </div>
     </WidgetContextMenu>
   );
