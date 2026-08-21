@@ -22,7 +22,10 @@ Built with [Tauri 2](https://tauri.app) · [React 19](https://react.dev) · [Typ
 - 🧩 **Extensible widget system** — each widget is an isolated module; write your own with plain HTML/CSS/TS
 - 🖱️ **Drag & drop** — move widgets freely with native Windows window dragging
 - 🖥️ **System tray** — manage widgets from the notification area, including a "Bring Widgets to Front" action
-- 🎛️ **Control Panel** — toggle widgets on/off, switch language, minimize to tray
+- 🎛️ **Control Panel** — toggle widgets on/off, switch language, draggable window, minimize to taskbar or hide to tray
+- 🎨 **Themes & per-widget styling** — dark / light / auto theme, plus per-widget accent color, corner radius, background opacity, and native acrylic blur
+- 🧱 **Layout templates** — one-click Default / Compact / Minimal arrangements, custom saved layouts, and JSON export/import
+- 🔔 **Native notifications** — Pomodoro session alerts, crypto price alerts, and clock alarms with configurable sound, duration, and repeat
 - ⚙️ **Settings menu** — launch at startup toggle (Windows registry autostart)
 - 📌 **Always on top** — pin any widget above other windows via a hover 📌 button or the right-click menu; each widget pins its own window independently and the choice is remembered. Pinned widgets stay on top even while other widgets sit in the desktop layer
 - ↔️ **Resizable windows** — every widget window is resizable with a sensible minimum size
@@ -31,15 +34,15 @@ Built with [Tauri 2](https://tauri.app) · [React 19](https://react.dev) · [Typ
 
 ## 📦 Included Widgets
 
-| Widget            | Highlights                                                                     |
-| ----------------- | ------------------------------------------------------------------------------ |
-| 🕐 Clock & Date   | Digital clock, localized date, built-in stopwatch                              |
-| 🌤️ Weather        | Open-Meteo forecast, city search, system location, 5-day outlook               |
-| 📊 System Monitor | Real CPU / RAM / disk / uptime + temperatures (sysinfo), Task Manager shortcut |
-| 📅 Calendar       | Month grid, today highlight, month navigation                                  |
-| 📝 Sticky Notes   | Persistent multi-line notes with complete/pending state (localStorage)         |
-| 🍅 Pomodoro Timer | Work / short / long break cycles, custom duration, session count               |
-| ₿ Crypto Tracker  | CoinGecko / Binance / Coinbase, sparkline charts, portfolio P&L                |
+| Widget            | Highlights                                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| 🕐 Clock & Date   | Digital clock, localized date, world clocks (NY / London / Tokyo / Sydney), daily alarm, stopwatch  |
+| 🌤️ Weather        | Open-Meteo current conditions, 7-day forecast, 24-hour hourly outlook, city search, system location |
+| 📊 System Monitor | CPU / RAM / disk usage, CPU & GPU temperatures, uptime, Task Manager shortcut                       |
+| 📅 Calendar       | Month grid, today highlight, month navigation, per-day events with indicators                       |
+| 📝 Sticky Notes   | Color-coded notes with due dates & overdue flags, complete/pending state (localStorage)             |
+| 🍅 Pomodoro Timer | Work / short / long break cycles, custom duration, auto-next, session notifications                 |
+| ₿ Crypto Tracker  | CoinGecko / Binance / Coinbase, sparkline charts, portfolio P&L, one-shot price alerts              |
 
 ## 🚀 Getting Started
 
@@ -137,6 +140,10 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and op
 - [x] Desktop-layer pinning re-enabled — widgets sit behind desktop icons again, safely applied on the main thread and fully compatible with per-widget always-on-top pinning (in the next release)
 - [x] Win+D survival hardened — every widget now gets the full minimize-guard stack (in the next release)
 - [x] Stability pass — weather fetch timeout, guaranteed weather location fallback, and no more unhandled promise rejections (in the next release)
+- [x] Draggable Control Panel with minimize-to-taskbar (−) and hide-to-tray (✕) buttons
+- [x] Native acrylic background blur — widget windows blur the desktop behind them (Windows 10 1809+ / 11), synced with the per-widget blur toggle
+- [x] Transparent widget windows — clean rounded corners with no rectangular edge artifact
+- [x] Layout sizing fixes — taller default clock & system monitor, raised minimum sizes so compact layouts fit, menus constrained to window bounds
 
 ### Ideas we're considering (no fixed schedule or version promises)
 
