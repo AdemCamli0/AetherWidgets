@@ -36,3 +36,4 @@ windows = { version = "0.61", features = [
     "Win32_UI_Accessibility",
     "Win32_Graphics_Gdi",
 ] }
+window-vibrancy = "0.8"

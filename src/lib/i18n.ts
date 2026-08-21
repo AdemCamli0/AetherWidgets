@@ -36,6 +36,7 @@ interface TranslationTree {
     snapToGrid: string;
     settings: string;
     launchAtStartup: string;
+    minimize: string;
     minimizeToTray: string;
     exit: string;
     notifications: string;
@@ -247,6 +248,7 @@ const EN_TRANSLATIONS: TranslationTree = {
     snapToGrid: "Snap to grid",
     settings: "Settings",
     launchAtStartup: "Launch at startup",
+    minimize: "Minimize",
     minimizeToTray: "Minimize to tray",
     exit: "Exit",
     notifications: "Notifications",
@@ -487,6 +489,7 @@ const TRANSLATIONS: Record<Language, PartialDeep<TranslationTree>> = {
       snapToGrid: "Izgaraya hizala",
       settings: "Ayarlar",
       launchAtStartup: "Başlangıçta çalıştır",
+      minimize: "Küçült",
       minimizeToTray: "Sistem tepsisine küçült",
       exit: "Çıkış",
       notifications: "Bildirimler",
@@ -721,6 +724,7 @@ const TRANSLATIONS: Record<Language, PartialDeep<TranslationTree>> = {
       snapToGrid: "Ajustar a la cuadrícula",
       settings: "Ajustes",
       launchAtStartup: "Iniciar al arrancar el sistema",
+      minimize: "Minimizar",
       minimizeToTray: "Minimizar a la bandeja",
       exit: "Salir",
       notifications: "Notificaciones",
@@ -956,6 +960,7 @@ const TRANSLATIONS: Record<Language, PartialDeep<TranslationTree>> = {
       snapToGrid: "Am Raster ausrichten",
       settings: "Einstellungen",
       launchAtStartup: "Beim Systemstart ausführen",
+      minimize: "Minimieren",
       minimizeToTray: "In den Infobereich minimieren",
       exit: "Beenden",
       notifications: "Benachrichtigungen",
@@ -1192,6 +1197,7 @@ const TRANSLATIONS: Record<Language, PartialDeep<TranslationTree>> = {
       snapToGrid: "Aligner sur la grille",
       settings: "Paramètres",
       launchAtStartup: "Lancer au démarrage",
+      minimize: "Réduire",
       minimizeToTray: "Réduire dans la barre d’état",
       exit: "Quitter",
       notifications: "Notifications",
@@ -1428,6 +1434,7 @@ const TRANSLATIONS: Record<Language, PartialDeep<TranslationTree>> = {
       snapToGrid: "Привязка к сетке",
       settings: "Настройки",
       launchAtStartup: "Запускать при старте системы",
+      minimize: "Свернуть",
       minimizeToTray: "Свернуть в трей",
       exit: "Выход",
       notifications: "Уведомления",
@@ -1664,6 +1671,7 @@ const TRANSLATIONS: Record<Language, PartialDeep<TranslationTree>> = {
       snapToGrid: "对齐网格",
       settings: "设置",
       launchAtStartup: "开机时启动",
+      minimize: "最小化",
       minimizeToTray: "最小化到托盘",
       exit: "退出",
       notifications: "通知",

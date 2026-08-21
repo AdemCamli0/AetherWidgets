@@ -170,7 +170,7 @@ export function ClockWidget() {
             <time className="pointer-events-none text-5xl font-semibold tracking-tight text-widget-text tabular-nums">
               {timeFormatter.format(now)}
             </time>
-            <span className="pointer-events-none text-sm font-medium text-widget-muted capitalize">
+            <span className="pointer-events-none text-sm font-medium text-accent capitalize">
               {dateFormatter.format(now)}
             </span>
 

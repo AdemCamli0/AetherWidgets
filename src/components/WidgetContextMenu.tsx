@@ -94,7 +94,7 @@ export function WidgetContextMenu({ children }: WidgetContextMenuProps) {
         <div
           ref={menuRef}
           role="menu"
-          className="absolute left-1/2 top-1/2 z-50 min-w-44 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-widget-border bg-widget-bg shadow-xl backdrop-blur-xl"
+          className="absolute left-1/2 top-1/2 z-50 max-h-[calc(100%-1rem)] min-w-44 max-w-[calc(100%-1rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-widget-border bg-widget-bg shadow-xl backdrop-blur-xl"
         >
           <button
             role="menuitem"

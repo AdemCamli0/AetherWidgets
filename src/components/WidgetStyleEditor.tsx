@@ -25,7 +25,7 @@ export function WidgetStyleEditor({ onClose }: WidgetStyleEditorProps) {
     <div
       role="dialog"
       aria-label={t("widgetStyle.title")}
-      className="absolute left-1/2 top-1/2 z-50 w-64 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-widget-border bg-widget-bg p-3 shadow-xl backdrop-blur-xl"
+      className="absolute left-1/2 top-1/2 z-50 max-h-[calc(100%-1rem)] w-64 max-w-[calc(100%-1rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-widget-border bg-widget-bg p-3 shadow-xl backdrop-blur-xl"
       onPointerDown={(e) => {
         e.stopPropagation();
       }}
@@ -98,7 +98,7 @@ export function WidgetStyleEditor({ onClose }: WidgetStyleEditorProps) {
                 onClick={() => {
                   update({ borderRadius: entry.level });
                 }}
-                className={`flex-1 rounded px-1.5 py-1 text-xs transition-colors ${
+                className={`min-w-0 flex-1 rounded px-1.5 py-1 text-xs transition-colors ${
                   style.borderRadius === entry.level
                     ? "bg-accent/25 font-semibold text-accent"
                     : "text-widget-muted hover:bg-widget-surface-hover hover:text-widget-text"
@@ -124,7 +124,7 @@ export function WidgetStyleEditor({ onClose }: WidgetStyleEditorProps) {
                 onClick={() => {
                   update({ bgOpacity: preset.value });
                 }}
-                className={`flex-1 rounded px-1 py-1 text-xs transition-colors ${
+                className={`min-w-0 flex-1 rounded px-1 py-1 text-xs transition-colors ${
                   style.bgOpacity === preset.value
                     ? "bg-accent/25 font-semibold text-accent"
                     : "text-widget-muted hover:bg-widget-surface-hover hover:text-widget-text"

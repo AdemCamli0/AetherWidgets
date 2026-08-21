@@ -20,9 +20,9 @@ export interface MonitorRect {
 
 /** Default (template) size for each widget, mirroring the Rust `WIDGETS` table. */
 const SIZES: Record<string, { width: number; height: number }> = {
-  clock: { width: 265, height: 200 },
+  clock: { width: 265, height: 280 },
   weather: { width: 410, height: 340 },
-  system: { width: 265, height: 220 },
+  system: { width: 265, height: 300 },
   calendar: { width: 265, height: 330 },
   notes: { width: 400, height: 275 },
   pomodoro: { width: 300, height: 425 },
@@ -31,12 +31,12 @@ const SIZES: Record<string, { width: number; height: number }> = {
 
 /** Minimum size for each widget, mirroring the Rust `widget_min_size` table. */
 const MIN_SIZES: Record<string, { width: number; height: number }> = {
-  clock: { width: 240, height: 120 },
+  clock: { width: 240, height: 180 },
   weather: { width: 320, height: 240 },
-  system: { width: 260, height: 200 },
-  calendar: { width: 240, height: 220 },
-  notes: { width: 200, height: 150 },
-  pomodoro: { width: 280, height: 280 },
+  system: { width: 260, height: 240 },
+  calendar: { width: 240, height: 240 },
+  notes: { width: 220, height: 200 },
+  pomodoro: { width: 280, height: 300 },
   crypto: { width: 300, height: 380 },
 };
 

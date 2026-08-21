@@ -8,7 +8,6 @@
 :root {
   --aw-widget-bg-solid: 20 20 28;
   --aw-widget-bg-alpha: 0.72;
-  --aw-widget-bg: rgb(var(--aw-widget-bg-solid) / var(--aw-widget-bg-alpha));
   --aw-widget-border: rgb(255 255 255 / 0.08);
   --aw-widget-text: rgb(255 255 255 / 0.95);
   --aw-widget-muted: rgb(255 255 255 / 0.55);
@@ -26,7 +25,6 @@
 [data-theme="light"] {
   --aw-widget-bg-solid: 248 249 252;
   --aw-widget-bg-alpha: 0.88;
-  --aw-widget-bg: rgb(var(--aw-widget-bg-solid) / var(--aw-widget-bg-alpha));
   --aw-widget-border: rgb(17 24 39 / 0.1);
   --aw-widget-text: rgb(17 24 39 / 0.92);
   --aw-widget-muted: rgb(17 24 39 / 0.55);
@@ -41,7 +39,10 @@
 
 @theme inline {
   --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --color-widget-bg: var(--aw-widget-bg);
+  /* Composed inline (not via a pre-resolved --aw-widget-bg) so that a
+     per-widget --aw-widget-bg-alpha override on the widget wrapper resolves
+     at the point of use instead of inheriting the root's baked value. */
+  --color-widget-bg: rgb(var(--aw-widget-bg-solid) / var(--aw-widget-bg-alpha));
   --color-widget-border: var(--aw-widget-border);
   --color-widget-text: var(--aw-widget-text);
   --color-widget-muted: var(--aw-widget-muted);

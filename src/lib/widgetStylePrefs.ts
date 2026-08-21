@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * Per-widget visual style preferences (accent color, corner radius, background
@@ -53,6 +54,23 @@ const DEFAULT_STYLE: WidgetStyle = {
 
 type StyleMap = Record<string, Partial<WidgetStyle>>;
 
+/**
+ * The `storage` event only fires in *other* windows, never in the window that
+ * performed the write. Within a single widget window, both the context menu
+ * wrapper (which applies the CSS vars) and the style editor hold their own
+ * `useWidgetStyle` state, so edits would not apply live in the same window.
+ * This tiny listener set keeps every hook instance in the current window in
+ * sync immediately after a local write.
+ */
+type StyleChangeListener = () => void;
+const styleChangeListeners = new Set<StyleChangeListener>();
+
+function notifyStyleChange(): void {
+  for (const listener of styleChangeListeners) {
+    listener();
+  }
+}
+
 function isAccentColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
 }
@@ -98,6 +116,7 @@ export function writeWidgetStyle(label: string, patch: Partial<WidgetStyle>): Wi
   const next = { ...readWidgetStyle(label), ...patch };
   map[label] = next;
   writeStyleMap(map);
+  notifyStyleChange();
   return next;
 }
 
@@ -110,6 +129,7 @@ export function resetWidgetStyle(label: string): WidgetStyle {
     }
   }
   writeStyleMap(nextMap);
+  notifyStyleChange();
   return { ...DEFAULT_STYLE };
 }
 
@@ -149,11 +169,27 @@ export function useWidgetStyle() {
         setStyle(readWidgetStyle(label));
       }
     };
+    const onLocalChange = () => {
+      setStyle(readWidgetStyle(label));
+    };
     window.addEventListener("storage", onStorage);
+    styleChangeListeners.add(onLocalChange);
     return () => {
       window.removeEventListener("storage", onStorage);
+      styleChangeListeners.delete(onLocalChange);
     };
   }, [label]);
+
+  // Keep the native Windows acrylic backdrop in sync with the stored blur
+  // preference. Runs on load (to apply/clear the persisted value) and whenever
+  // the user toggles blur for this widget. CSS `backdrop-filter` cannot blur
+  // the desktop behind a window, so the frosted-glass look needs this native
+  // effect. Failures are non-fatal (unsupported OS versions).
+  useEffect(() => {
+    void invoke("set_widget_blur", { label, enabled: style.blur }).catch((err: unknown) => {
+      console.error("Failed to set widget blur:", err);
+    });
+  }, [label, style.blur]);
 
   const update = useCallback(
     (patch: Partial<WidgetStyle>) => {

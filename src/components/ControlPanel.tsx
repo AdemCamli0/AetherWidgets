@@ -191,9 +191,20 @@ export function ControlPanel() {
     }
   };
 
+  const minimizeToTaskbar = async () => {
+    try {
+      await getCurrentWindow().minimize();
+    } catch (err) {
+      console.error("Minimize to taskbar failed:", err);
+    }
+  };
+
   return (
     <div className="relative flex h-full w-full flex-col rounded-2xl border border-widget-border bg-widget-bg shadow-2xl backdrop-blur-xl">
-      <div className="flex items-center justify-between gap-3 border-b border-widget-border px-4 py-3">
+      <div
+        data-tauri-drag-region="deep"
+        className="flex cursor-grab items-center justify-between gap-3 border-b border-widget-border px-4 py-3 active:cursor-grabbing"
+      >
         <div>
           <h1 className="text-lg font-semibold text-widget-text">{t("controlPanel.title")}</h1>
           <p className="text-xs text-widget-muted">{t("controlPanel.subtitle")}</p>
@@ -554,6 +565,26 @@ export function ControlPanel() {
             )}
           </div>
           <button
+            onClick={() => void minimizeToTaskbar()}
+            className="rounded-lg p-1.5 text-widget-muted transition-colors hover:bg-widget-surface-hover hover:text-widget-text"
+            title={t("controlPanel.minimize")}
+            aria-label={t("controlPanel.minimize")}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M5 12h14" />
+            </svg>
+          </button>
+          <button
             onClick={() => void minimizeToTray()}
             className="rounded-lg p-1.5 text-widget-muted transition-colors hover:bg-widget-surface-hover hover:text-widget-text"
             title={t("controlPanel.minimizeToTray")}
@@ -570,7 +601,8 @@ export function ControlPanel() {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <path d="M5 12h14" />
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
             </svg>
           </button>
         </div>

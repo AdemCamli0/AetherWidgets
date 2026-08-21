@@ -17,10 +17,10 @@ use tauri::{
 /// position yet. Columns are stacked top-to-bottom with small gaps and never
 /// overlap.
 const WIDGETS: &[(&str, &str, i32, i32, u32, u32)] = &[
-    ("clock", "AetherWidgets — Clock", 871, 4, 265, 200),
+    ("clock", "AetherWidgets — Clock", 871, 4, 265, 280),
     ("weather", "AetherWidgets - Weather", 1144, 4, 410, 340),
-    ("system", "AetherWidgets — System", 871, 550, 265, 220),
-    ("calendar", "AetherWidgets — Calendar", 871, 212, 265, 330),
+    ("system", "AetherWidgets — System", 871, 630, 265, 300),
+    ("calendar", "AetherWidgets — Calendar", 871, 292, 265, 330),
     ("notes", "AetherWidgets — Notes", 1144, 352, 400, 275),
     ("pomodoro", "AetherWidgets — Pomodoro", 1562, 512, 300, 425),
     ("crypto", "AetherWidgets — Crypto", 1562, 4, 350, 500),
@@ -31,12 +31,12 @@ const WIDGETS: &[(&str, &str, i32, i32, u32, u32)] = &[
 /// enforces the same limits.
 fn widget_min_size(label: &str) -> (f64, f64) {
     match label {
-        "clock" => (240.0, 120.0),
+        "clock" => (240.0, 180.0),
         "weather" => (320.0, 240.0),
-        "system" => (260.0, 200.0),
-        "calendar" => (240.0, 220.0),
-        "notes" => (200.0, 150.0),
-        "pomodoro" => (280.0, 280.0),
+        "system" => (260.0, 240.0),
+        "calendar" => (240.0, 240.0),
+        "notes" => (220.0, 200.0),
+        "pomodoro" => (280.0, 300.0),
         "crypto" => (300.0, 380.0),
         _ => (200.0, 150.0),
     }
@@ -130,6 +130,7 @@ pub fn run() {
             get_widget_rects,
             get_widget_size_bounds,
             apply_widget_layouts,
+            set_widget_blur,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AetherWidgets");
@@ -177,7 +178,7 @@ async fn open_widget<R: tauri::Runtime>(
         .title(*title)
         .inner_size(init_w as f64, init_h as f64)
         .decorations(false)
-        .transparent(false)
+        .transparent(true)
         .always_on_top(false)
         .skip_taskbar(true)
         .focusable(true);
@@ -242,6 +243,11 @@ async fn open_widget<R: tauri::Runtime>(
         eprintln!("[AetherWidgets] failed to register HWND for {label}: {e}");
     }
 
+    // Apply the native acrylic backdrop (blur defaults to on). The frontend
+    // re-syncs the stored per-widget blur preference on load and clears it if
+    // the user disabled blur for this widget.
+    desktop::apply_widget_blur(&window, true);
+
     // Mark as open
     {
         let mut widgets = state.open_widgets.lock().map_err(|e| e.to_string())?;
@@ -280,6 +286,23 @@ async fn close_widget<R: tauri::Runtime>(
     // Notify the control panel so its toggle state stays in sync.
     let _ = app.emit("widgets-changed", ());
 
+    Ok(())
+}
+
+/// Enables or disables the native Windows acrylic blur backdrop for a widget
+/// window. Widget windows are transparent (see `open_widget`), so the acrylic
+/// backdrop shows through the semi-transparent widget background, blurring the
+/// desktop behind it. No-op on unsupported platforms/Windows versions.
+#[tauri::command]
+async fn set_widget_blur<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    label: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    let win = app
+        .get_webview_window(label)
+        .ok_or_else(|| format!("Window not found: {label}"))?;
+    desktop::apply_widget_blur(&win, enabled);
     Ok(())
 }
 

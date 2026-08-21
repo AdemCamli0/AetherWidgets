@@ -144,7 +144,7 @@ export function PomodoroWidget() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`flex h-full w-full flex-col gap-1 overflow-hidden rounded-(--aw-widget-radius) border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-(--aw-widget-blur) ${
+        className={`flex h-full w-full flex-col gap-1 overflow-y-auto rounded-(--aw-widget-radius) border border-widget-border bg-widget-bg p-3 shadow-2xl backdrop-blur-(--aw-widget-blur) ${
           isDragging ? "cursor-grabbing" : "cursor-grab"
         }`}
       >

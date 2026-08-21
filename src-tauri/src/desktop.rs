@@ -309,6 +309,23 @@ pub fn remove_minimize_box_raw(hwnd_key: isize) {
 #[cfg(not(windows))]
 pub fn remove_minimize_box_raw(_hwnd_key: isize) {}
 
+/// Applies or clears the native Windows acrylic blur backdrop for a widget
+/// window. Acrylic blurs the desktop wallpaper behind the transparent window,
+/// producing the frosted-glass look the style editor's "blur" toggle controls.
+/// Failures (e.g. unsupported Windows version) are ignored — the widget simply
+/// renders without a blurred backdrop.
+#[cfg(windows)]
+pub fn apply_widget_blur<R: Runtime>(window: &WebviewWindow<R>, enabled: bool) {
+    if enabled {
+        let _ = window_vibrancy::apply_acrylic(window, Some((20, 20, 28, 40)));
+    } else {
+        let _ = window_vibrancy::clear_acrylic(window);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn apply_widget_blur<R: Runtime>(_window: &WebviewWindow<R>, _enabled: bool) {}
+
 /// WinEvent hook callback. When the user triggers "Show desktop" (Win+D or
 /// the taskbar button), Windows minimizes all windows including ours. This
 /// hook fires on EVENT_SYSTEM_MINIMIZESTART. Because the minimize completes

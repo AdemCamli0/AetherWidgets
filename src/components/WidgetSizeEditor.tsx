@@ -107,7 +107,7 @@ export function WidgetSizeEditor({ onClose }: WidgetSizeEditorProps) {
     <div
       role="dialog"
       aria-label={t("widgetSizeEditor.title")}
-      className="absolute left-1/2 top-1/2 z-50 w-64 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-widget-border bg-widget-bg p-3 shadow-xl backdrop-blur-xl"
+      className="absolute left-1/2 top-1/2 z-50 max-h-[calc(100%-1rem)] w-64 max-w-[calc(100%-1rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-widget-border bg-widget-bg p-3 shadow-xl backdrop-blur-xl"
       onPointerDown={(e) => {
         e.stopPropagation();
       }}
